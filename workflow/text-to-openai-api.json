@@ -1,0 +1,229 @@
+{
+  "name": "TEXT TO OPENAI API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analyze",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        -320
+      ],
+      "id": "b57ef648-5336-41c0-83ba-d3a9965488f9",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body;\n\nconst fail = (code, message) => ({\n  json: {\n    valid: false,\n    httpCode: 400,\n    body: { status: \"error\", error: { code, message } }\n  }\n});\n\nif (body === null || typeof body !== \"object\" || Array.isArray(body)) {\n  return fail(\"invalid_input\", \"Send a JSON object, for example {\\\"text\\\": \\\"your text\\\"}.\");\n}\nif (!(\"text\" in body)) {\n  return fail(\"missing_field\", \"The field \\\"text\\\" is required.\");\n}\nif (typeof body.text !== \"string\") {\n  return fail(\"wrong_type\", \"The field \\\"text\\\" must be a string.\");\n}\n\nconst text = body.text.trim();\n\nif (text.length === 0) {\n  return fail(\"empty_text\", \"The field \\\"text\\\" must not be empty.\");\n}\nif (text.length > 4000) {\n  return fail(\"text_too_long\", \"The field \\\"text\\\" must be 4000 characters or fewer.\");\n}\n\nreturn { json: { valid: true, text } }"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -320
+      ],
+      "id": "ee06b4c9-7282-4810-91b7-3b582a2b896e",
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a830e7dd-1bdb-4189-a356-0fe322955e58",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        -320
+      ],
+      "id": "95f6f5d2-d8ca-4713-95ad-f41cdba43970",
+      "name": "Is Valid?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"gpt-4o-mini\",\n  response_format: { type: \"json_object\" },\n  messages: [\n    {\n      role: \"system\",\n      content: \"Read the text from the user. Reply only with JSON in this exact shape: {\\\"summary\\\": \\\"one short sentence\\\", \\\"category\\\": \\\"question, complaint, praise, or other\\\"}\"\n    },\n    { role: \"user\", content: $json.text }\n  ]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        -400
+      ],
+      "id": "3d2d13ec-50e7-4a56-8528-bb7168cb07bb",
+      "name": "Call OpenAI",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "try {\n  const content = $json.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  return { json: { httpCode: 200, body: { status: \"success\", result: parsed } } };\n} catch (e) {\n  return {\n    json: {\n      httpCode: 502,\n      body: {\n        status: \"error\",\n        error: {\n          code: \"bad_ai_output\",\n          message: \"The AI service returned an answer that could not be read. Please try again.\"\n        }\n      }\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -496
+      ],
+      "id": "b7cdb7c6-afa7-4d84-9fbb-2b960dacf09f",
+      "name": "Shape Result"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    httpCode: 502,\n    body: {\n      status: \"error\",\n      error: {\n        code: \"api_error\",\n        message: \"The AI service could not process the request. Please try again later.\"\n      }\n    }\n  }\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -304
+      ],
+      "id": "2ced859a-9218-4502-b2c1-43f7def9f2d1",
+      "name": "API Error"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.httpCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        -304
+      ],
+      "id": "0be1d916-852e-4b91-98cc-4cba1837dd09",
+      "name": "Respond"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Shape Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "API Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Result": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API Error": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
